@@ -26,6 +26,7 @@ type ClientConnection struct {
 type StoredContent struct {
 	sync.RWMutex
 
+	generation                        uint64
 	ts                                []byte
 	signature                         []byte
 	ciphertextWithEncryptSkIDAndNonce []byte
@@ -74,8 +75,10 @@ func (cnx *ClientConnection) getOperation(h1 []byte, isMove bool) {
 	}
 
 	var ts, signature, ciphertextWithEncryptSkIDAndNonce []byte
+	var moveGeneration uint64
 	if isMove {
 		storedContent.Lock()
+		moveGeneration = storedContent.generation
 		ts, signature, ciphertextWithEncryptSkIDAndNonce = storedContent.ts, storedContent.signature, storedContent.ciphertextWithEncryptSkIDAndNonce
 		storedContent.ts, storedContent.signature,
 			storedContent.ciphertextWithEncryptSkIDAndNonce = nil, nil, nil
@@ -96,6 +99,15 @@ func (cnx *ClientConnection) getOperation(h1 []byte, isMove bool) {
 	writer.Write(signature)
 	writer.Write(ciphertextWithEncryptSkIDAndNonce)
 	if err := writer.Flush(); err != nil {
+		if isMove {
+			storedContent.Lock()
+			if storedContent.generation == moveGeneration && storedContent.ciphertextWithEncryptSkIDAndNonce == nil {
+				storedContent.ts = ts
+				storedContent.signature = signature
+				storedContent.ciphertextWithEncryptSkIDAndNonce = ciphertextWithEncryptSkIDAndNonce
+			}
+			storedContent.Unlock()
+		}
 		log.Print(err)
 		return
 	}
@@ -141,6 +153,7 @@ func (cnx *ClientConnection) storeOperation(h1 []byte) {
 	h3 := auth3store(conf, h2)
 
 	storedContent.Lock()
+	storedContent.generation++
 	storedContent.ts = ts
 	storedContent.signature = signature
 	storedContent.ciphertextWithEncryptSkIDAndNonce = ciphertextWithEncryptSkIDAndNonce
