@@ -123,8 +123,16 @@ func (client *Client) pasteOperation(h1 []byte, isMove bool) {
 	if subtle.ConstantTimeCompare(wh3, h3) != 1 {
 		log.Fatal("Incorrect authentication code")
 	}
-	elapsed := time.Since(time.Unix(int64(binary.LittleEndian.Uint64(ts)), 0))
-	if elapsed >= conf.TTL {
+	tsRaw := binary.LittleEndian.Uint64(ts)
+	if tsRaw > math.MaxInt64 {
+		log.Fatal("Clipboard content timestamp is invalid")
+	}
+	tsTime := time.Unix(int64(tsRaw), 0)
+	now := time.Now()
+	if tsTime.After(now.Add(MaxFutureSkew)) {
+		log.Fatal("Clipboard content timestamp is too far in the future")
+	}
+	if now.Sub(tsTime) >= conf.TTL {
 		log.Fatal("Clipboard content is too old")
 	}
 	if ciphertextWithEncryptSkIDAndNonceLen < 8+24 {
